@@ -1,7 +1,7 @@
 package mr
 
 import (
-	"bufio"
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -9,7 +9,7 @@ import (
 	"net/rpc"
 	"os"
 	"sort"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,11 +64,14 @@ func (w *WorkerNode) Reduce(task *ReduceTask) {
 			log.Fatalf("cannot open %v \n", fileName)
 		}
 
-		scanner := bufio.NewScanner(file)
+		dec := json.NewDecoder(file)
 
-		for scanner.Scan() {
-			kv := strings.Split(scanner.Text(), " ")
-			intermediate = append(intermediate, KeyValue{Key: kv[0], Value: kv[1]})
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			intermediate = append(intermediate, kv)
 		}
 	}
 
@@ -117,20 +120,30 @@ func (w *WorkerNode) Map(task *MapTask) {
 		intermediate[pos] = append(intermediate[pos], val)
 	}
 
+	wg := sync.WaitGroup{}
+
 	for pos, vals := range intermediate {
-		fileName := fmt.Sprintf("mr-%v-%v", task.Task.ID, pos)
-		ofile, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			log.Fatalf("cannot open output file, %v", fileName)
-		}
+		wg.Add(1)
+		go func(pos int, vals []KeyValue) {
+			fileName := fmt.Sprintf("mr-%v-%v", task.Task.ID, pos)
+			ofile, err := os.Create(fileName)
+			if err != nil {
+				log.Fatalf("cannot open output file, %v", fileName)
+			}
 
-		for _, kva := range vals {
-			fmt.Fprintf(ofile, "%v %v\n", kva.Key, kva.Value)
-		}
-
-		ofile.Close()
+			enc := json.NewEncoder(ofile)
+			for _, kv := range vals {
+				err := enc.Encode(kv)
+				if err != nil {
+					log.Fatal("cannot write into file")
+				}
+			}
+			ofile.Close()
+			wg.Done()
+		}(pos, vals)
 	}
 
+	wg.Wait()
 	call("Coordinator.FinishTask", &FinishTaskArgs{TaskType: MAP, TaskId: task.Task.ID}, &FinishTaskReply{})
 }
 

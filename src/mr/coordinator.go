@@ -38,7 +38,6 @@ type ReduceTask struct {
 
 type Coordinator struct {
 	lock        *sync.Mutex
-	wg          *sync.WaitGroup
 	MapTasks    []*MapTask
 	ReduceTasks []*ReduceTask
 
@@ -65,8 +64,6 @@ func (c *Coordinator) checkAndPrempt(taskID int, taskType int) {
 			task.Status = IDLE
 		}
 	}
-
-	c.wg.Done()
 }
 
 func (c *Coordinator) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) error {
@@ -88,7 +85,6 @@ func (c *Coordinator) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply
 				// 	task.ID, task.WorkerId,
 				// 	task.StartedAt.Format(time.RFC3339Nano),
 				// )
-				c.wg.Add(1)
 				go c.checkAndPrempt(id, MAP)
 				return nil
 			}
@@ -113,7 +109,6 @@ func (c *Coordinator) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply
 				// 	task.ID, task.WorkerId,
 				// 	task.StartedAt.Format(time.RFC3339Nano),
 				// )
-				c.wg.Add(1)
 				go c.checkAndPrempt(id, REDUCE)
 				return nil
 			}
@@ -142,7 +137,7 @@ func (c *Coordinator) FinishTask(args *FinishTaskArgs, reply *FinishTaskReply) e
 	if args.TaskType == MAP {
 		task := c.MapTasks[args.TaskId]
 
-		if task.Status == IN_PROGRESS {
+		if task.Status != COMPLETED {
 			// fmt.Printf("Map Task with an ID of %v completed by Worker with an ID of %v at time: %v. Total time taken: %v \n",
 			// 	task.ID, task.WorkerId,
 			// 	time.Now().Format(time.RFC3339Nano),
@@ -154,7 +149,7 @@ func (c *Coordinator) FinishTask(args *FinishTaskArgs, reply *FinishTaskReply) e
 	} else if args.TaskType == REDUCE {
 		task := c.ReduceTasks[args.TaskId]
 
-		if task.Status == IN_PROGRESS {
+		if task.Status != COMPLETED {
 			// fmt.Printf("Reduce Task with an ID of %v completed by Worker with an ID of %v at time: %v. Total time taken: %v \n",
 			// 	task.ID, task.WorkerId,
 			// 	time.Now().Format(time.RFC3339Nano),
@@ -193,7 +188,6 @@ func (c *Coordinator) Done() bool {
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{
 		lock:                 &sync.Mutex{},
-		wg:                   &sync.WaitGroup{},
 		MapTasks:             make([]*MapTask, len(files)),
 		ReduceTasks:          make([]*ReduceTask, nReduce),
 		RemainingMapTasks:    len(files),
