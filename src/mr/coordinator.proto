@@ -25,7 +25,7 @@ message Task{
 
 message MapTask{
     string file_name= 1;
-    int32 n_reducers = 2;
+    int32 n_reducer = 2;
     Task task = 3;
 }
 

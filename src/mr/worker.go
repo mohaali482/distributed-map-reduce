@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -12,7 +13,10 @@ import (
 	"sync"
 	"time"
 
+	"6.5840/mr/mrpb"
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Map functions return a slice of KeyValue.
@@ -32,6 +36,7 @@ func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 type Communication interface {
 	RequestTask(args *RequestTaskArgs) *RequestTaskReply
 	FinishTask(args *FinishTaskArgs) *FinishTaskReply
+	Close()
 }
 
 type RPCCommunication struct{}
@@ -48,6 +53,79 @@ func (r *RPCCommunication) FinishTask(args *FinishTaskArgs) *FinishTaskReply {
 	call("CoordinatorRPC.FinishTask", args, reply)
 
 	return reply
+}
+
+func (r *RPCCommunication) Close() {}
+
+type GRPCCommunication struct {
+	conn   *grpc.ClientConn
+	client mrpb.CoordinatorClient
+}
+
+func NewGRPCClient() *GRPCCommunication {
+	conn, err := grpc.NewClient("localhost:5051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("fail to dial: %v", err)
+	}
+	client := mrpb.NewCoordinatorClient(conn)
+
+	return &GRPCCommunication{
+		conn:   conn,
+		client: client,
+	}
+}
+
+func (r *GRPCCommunication) RequestTask(args *RequestTaskArgs) *RequestTaskReply {
+	reply, _ := r.client.RequestTask(context.TODO(),
+		&mrpb.RequestTaskRequest{
+			WorkerId: args.WorkerId,
+		})
+
+	reqReply := &RequestTaskReply{}
+
+	if reply.Done {
+		reqReply.Done = true
+	} else if reply.Wait {
+		reqReply.Wait = true
+	} else if reply.TaskType == mrpb.TaskType_MAP {
+		reqReply.TaskType = MAP
+		reqReply.Map = &MapTask{
+			FileName: reply.GetMapTask().FileName,
+			NReduce:  int(reply.GetMapTask().NReducer),
+			Task: Task{
+				ID:     int(reply.GetMapTask().GetTask().Id),
+				Status: int(reply.GetMapTask().GetTask().Status),
+			},
+		}
+	} else {
+		reqReply.TaskType = REDUCE
+		reqReply.Reduce = &ReduceTask{
+			Files:  reply.GetReduceTask().Files,
+			Reduce: int(reply.GetReduceTask().Reduce),
+			Task: Task{
+				ID:     int(reply.GetReduceTask().GetTask().Id),
+				Status: int(reply.GetReduceTask().GetTask().Status),
+			},
+		}
+	}
+
+	return reqReply
+
+}
+
+func (r *GRPCCommunication) FinishTask(args *FinishTaskArgs) *FinishTaskReply {
+	r.client.FinishTask(context.TODO(), &mrpb.FinishTaskRequest{
+		TaskType: mrpb.TaskType(args.TaskType),
+		TaskId:   int32(args.TaskId),
+	})
+
+	reqReply := &FinishTaskReply{}
+
+	return reqReply
+}
+
+func (r *GRPCCommunication) Close() {
+	r.conn.Close()
 }
 
 type WorkerNode struct {
@@ -203,8 +281,10 @@ func Worker(mapf func(string, string) []KeyValue,
 		ID:      id.String(),
 		mapf:    mapf,
 		reducef: reducef,
-		comm:    &RPCCommunication{},
+		comm:    NewGRPCClient(),
 	}
+
+	defer worker.comm.Close()
 
 	for !worker.shouldExit {
 		worker.RequestTask()
