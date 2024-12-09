@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package mr;
+
+import "google/protobuf/timestamp.proto";
+option go_package = "./mrpb";
+
+enum TaskStatus{
+    IDLE = 0;
+    IN_PROGRESS = 1;
+    COMPLETED = 2;
+}
+
+enum TaskType{
+    MAP = 0;
+    REDUCE = 1;
+}
+
+message Task{
+    int32 id = 1;
+    TaskStatus status = 2;
+    string worker_id = 3;
+    google.protobuf.Timestamp started_at = 4;
+}
+
+message MapTask{
+    string file_name= 1;
+    int32 n_reducers = 2;
+    Task task = 3;
+}
+
+message ReduceTask{
+    repeated string files= 1;
+    int32 reduce = 2;
+    Task task = 3;
+}
+
+message RequestTaskRequest{
+    string workerId = 1;
+}
+
+message RequestTaskReply{
+    TaskType taskType = 1;
+    oneof task{
+        MapTask mapTask = 2;
+        ReduceTask reduceTask = 3;
+    }
+    bool done = 4;
+    bool wait = 5;
+}
+
+message FinishTaskRequest{
+    TaskType taskType = 1;
+    int32 taskId = 2;
+}
+
+message FinishTaskReply{}
+
+service Coordinator {
+    rpc RequestTask(RequestTaskRequest) returns (RequestTaskReply);
+    rpc FinishTask(FinishTaskRequest) returns (FinishTaskReply);
+}
