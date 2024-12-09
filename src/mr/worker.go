@@ -78,27 +78,40 @@ func (w *WorkerNode) Reduce(task *ReduceTask) {
 	sort.Sort(ByKey(intermediate))
 
 	oname := fmt.Sprintf("mr-out-%v", task.Reduce)
-	ofile, _ := os.Create(oname)
+	tempOname := fmt.Sprintf("mr-out-%v-%v", task.Reduce, w.ID)
 
-	i := 0
-	for i < len(intermediate) {
-		j := i + 1
-		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
-			j++
+	if _, err := os.Stat(oname); err != nil {
+		if !os.IsNotExist(err) {
+			log.Fatal("Unexpected error occurred,", err)
 		}
-		values := []string{}
-		for k := i; k < j; k++ {
-			values = append(values, intermediate[k].Value)
+
+		ofile, err := os.Create(tempOname)
+
+		if err != nil {
+			log.Fatal("unable to open reduce file")
 		}
-		output := w.reducef(intermediate[i].Key, values)
 
-		// this is the correct format for each line of Reduce output.
-		fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
+		i := 0
+		for i < len(intermediate) {
+			j := i + 1
+			for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+				j++
+			}
+			values := []string{}
+			for k := i; k < j; k++ {
+				values = append(values, intermediate[k].Value)
+			}
+			output := w.reducef(intermediate[i].Key, values)
 
-		i = j
+			fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
+
+			i = j
+		}
+
+		ofile.Close()
+		os.Rename(tempOname, oname)
 	}
 
-	ofile.Close()
 	call("Coordinator.FinishTask", &FinishTaskArgs{TaskType: REDUCE, TaskId: task.Task.ID}, &FinishTaskReply{})
 }
 
@@ -121,11 +134,16 @@ func (w *WorkerNode) Map(task *MapTask) {
 	}
 
 	wg := sync.WaitGroup{}
-
 	for pos, vals := range intermediate {
 		wg.Add(1)
 		go func(pos int, vals []KeyValue) {
 			fileName := fmt.Sprintf("mr-%v-%v", task.Task.ID, pos)
+
+			if _, err := os.Stat(fileName); err == nil {
+				wg.Done()
+				return
+			}
+
 			ofile, err := os.Create(fileName)
 			if err != nil {
 				log.Fatalf("cannot open output file, %v", fileName)

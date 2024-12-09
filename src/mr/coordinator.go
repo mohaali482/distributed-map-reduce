@@ -11,31 +11,6 @@ import (
 	"time"
 )
 
-const (
-	IDLE = iota
-	IN_PROGRESS
-	COMPLETED
-)
-
-type Task struct {
-	ID        int
-	Status    int
-	WorkerId  string
-	StartedAt time.Time
-}
-
-type MapTask struct {
-	FileName string
-	NReduce  int
-	Task
-}
-
-type ReduceTask struct {
-	Files  []string
-	Reduce int
-	Task
-}
-
 type Coordinator struct {
 	lock        *sync.Mutex
 	MapTasks    []*MapTask
@@ -122,14 +97,6 @@ func (c *Coordinator) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply
 	return nil
 }
 
-type FinishTaskArgs struct {
-	TaskType int
-	TaskId   int
-}
-
-type FinishTaskReply struct {
-}
-
 func (c *Coordinator) FinishTask(args *FinishTaskArgs, reply *FinishTaskReply) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -179,6 +146,8 @@ func (c *Coordinator) server() {
 // main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	return c.RemainingMapTasks == 0 && c.RemainingReduceTasks == 0
 }
 
