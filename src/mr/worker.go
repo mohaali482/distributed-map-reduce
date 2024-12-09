@@ -41,6 +41,10 @@ type Communication interface {
 
 type RPCCommunication struct{}
 
+func NewRPCClient() *RPCCommunication {
+	return &RPCCommunication{}
+}
+
 func (r *RPCCommunication) RequestTask(args *RequestTaskArgs) *RequestTaskReply {
 	reply := &RequestTaskReply{}
 	call("CoordinatorRPC.RequestTask", args, reply)
