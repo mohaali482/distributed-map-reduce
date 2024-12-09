@@ -29,18 +29,39 @@ func (a ByKey) Len() int           { return len(a) }
 func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
+type Communication interface {
+	RequestTask(args *RequestTaskArgs) *RequestTaskReply
+	FinishTask(args *FinishTaskArgs) *FinishTaskReply
+}
+
+type RPCCommunication struct{}
+
+func (r *RPCCommunication) RequestTask(args *RequestTaskArgs) *RequestTaskReply {
+	reply := &RequestTaskReply{}
+	call("CoordinatorRPC.RequestTask", args, reply)
+
+	return reply
+}
+
+func (r *RPCCommunication) FinishTask(args *FinishTaskArgs) *FinishTaskReply {
+	reply := &FinishTaskReply{}
+	call("CoordinatorRPC.FinishTask", args, reply)
+
+	return reply
+}
+
 type WorkerNode struct {
 	ID         string
 	mapf       func(string, string) []KeyValue
 	reducef    func(string, []string) string
 	shouldExit bool
 	shouldWait bool
+	comm       Communication
 }
 
 func (w *WorkerNode) RequestTask() {
 	args := RequestTaskArgs{WorkerId: w.ID}
-	reply := RequestTaskReply{}
-	call("Coordinator.RequestTask", &args, &reply)
+	reply := w.comm.RequestTask(&args)
 
 	if reply.Done {
 		w.shouldExit = true
@@ -112,7 +133,7 @@ func (w *WorkerNode) Reduce(task *ReduceTask) {
 		os.Rename(tempOname, oname)
 	}
 
-	call("Coordinator.FinishTask", &FinishTaskArgs{TaskType: REDUCE, TaskId: task.Task.ID}, &FinishTaskReply{})
+	w.comm.FinishTask(&FinishTaskArgs{TaskType: REDUCE, TaskId: task.Task.ID})
 }
 
 func (w *WorkerNode) Map(task *MapTask) {
@@ -162,7 +183,7 @@ func (w *WorkerNode) Map(task *MapTask) {
 	}
 
 	wg.Wait()
-	call("Coordinator.FinishTask", &FinishTaskArgs{TaskType: MAP, TaskId: task.Task.ID}, &FinishTaskReply{})
+	w.comm.FinishTask(&FinishTaskArgs{TaskType: MAP, TaskId: task.Task.ID})
 }
 
 // use ihash(key) % NReduce to choose the reduce
@@ -182,6 +203,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		ID:      id.String(),
 		mapf:    mapf,
 		reducef: reducef,
+		comm:    &RPCCommunication{},
 	}
 
 	for !worker.shouldExit {
