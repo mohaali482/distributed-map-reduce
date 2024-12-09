@@ -9,6 +9,7 @@ import (
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) Coordinator {
 	c := MakeGRPCCoordinator(files, nReduce)
+	// c := MakeRPCCoordinator(files, nReduce)
 	c.server()
 	return c
 }

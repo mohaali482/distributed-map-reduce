@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -154,6 +155,15 @@ func (c *CoordinatorGRPCImpl) server() {
 
 	grpcServer := grpc.NewServer()
 	mrpb.RegisterCoordinatorServer(grpcServer, c)
+
+	// The following is only added for testing the crash test, because it depends on this part only
+	sockname := coordinatorSock()
+	os.Remove(sockname)
+	_, e := net.Listen("unix", sockname)
+	if e != nil {
+		log.Fatal("listen error:", e)
+	}
+
 	go grpcServer.Serve(lis)
 }
 
