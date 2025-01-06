@@ -285,7 +285,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		ID:      id.String(),
 		mapf:    mapf,
 		reducef: reducef,
-		comm:    NewGRPCClient(),
+		comm:    NewRPCClient(),
 	}
 
 	defer worker.comm.Close()
